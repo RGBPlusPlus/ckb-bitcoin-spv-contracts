@@ -145,7 +145,7 @@ fn test_normal(case: NormalCase) {
         if height + 1 < case.stale_height && headers.len() < SPV_HEADERS_GROUP_SIZE {
             continue;
         }
-        let _update = service.update(mem::take(&mut headers)).unwrap();
+        let _update = service.update(mem::take(&mut headers), 0).unwrap();
         if height + 1 >= case.stale_height {
             break;
         }
@@ -165,7 +165,7 @@ fn test_normal(case: NormalCase) {
         };
         headers.push(stale_header);
         let prev_client = service.tip_client();
-        let _update = service.update(mem::take(&mut headers)).unwrap();
+        let _update = service.update(mem::take(&mut headers), 0).unwrap();
         let mut stale_client = service.tip_client();
         service.rollback_to(prev_client).unwrap();
         stale_client.id = case.stale_client_id;
@@ -238,7 +238,7 @@ fn test_normal(case: NormalCase) {
             headers.push(header);
         }
 
-        service.update(mem::take(&mut headers)).unwrap()
+        service.update(mem::take(&mut headers), 0).unwrap()
     };
 
     let reorg_clients_count = usize::from(case.reorg_clients_count);
