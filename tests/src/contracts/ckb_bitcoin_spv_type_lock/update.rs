@@ -202,7 +202,7 @@ fn test_normal(case: NormalCase) {
             CellInput::new_builder().previous_output(out_point).build()
         };
 
-        let update = service.update(mem::take(&mut headers)).unwrap();
+        let update = service.update(mem::take(&mut headers), 0).unwrap();
 
         let witness_spv_client = {
             let type_args = BytesOpt::new_builder()
