@@ -202,7 +202,9 @@ To verify a transaction using the Bitcoin SPV Client cell, follow these steps:
 
   - The height of the block header.
 
-- Use the [`SpvClient::verify_transaction(..)`](https://github.com/ckb-cell/ckb-bitcoin-spv/blob/2464c8f/verifier/src/types/extension/packed.rs#L275-L292) for the verification. For detailed guidance, please refer to the [API example].
+- Use the [`SpvClient::verify_transaction(..)`](https://github.com/RGBPlusPlus/ckb-bitcoin-spv/blob/3f7a0ddf947b35c60ce6c63b7fef2005cb12d0af/verifier/src/types/extension/packed.rs#L298-L303) for the verification. For detailed guidance, please refer to the [API example].
+
+  Use `ckb-bitcoin-spv-verifier` at [`3f7a0dd`](https://github.com/RGBPlusPlus/ckb-bitcoin-spv/commit/3f7a0ddf947b35c60ce6c63b7fef2005cb12d0af) or later. Earlier versions of `verify_transaction` ignore the result of the header MMR proof check, so a transaction proof built on a forged header is accepted ([RGBPlusPlus/ckb-bitcoin-spv#2](https://github.com/RGBPlusPlus/ckb-bitcoin-spv/pull/2)).
 
 ### Limits
 
