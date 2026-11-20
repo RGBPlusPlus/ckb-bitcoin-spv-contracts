@@ -2,19 +2,100 @@ name: Checksum
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   ubuntu-build:
-
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.source.outputs.release }}
 
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - name: Build binaries
-      run: make docker-build
-    - name: Checksum
-      run: git diff --exit-code checksums.txt
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Build binaries
+        run: make docker-build
+      - name: Checksum
+        run: git diff --exit-code checksums.txt
+      - name: Check version tag and source
+        if: >-
+          github.event_name == 'push' && github.ref_type == 'tag' &&
+          github.ref_protected && github.repository == 'RGBPlusPlus/ckb-bitcoin-spv-contracts'
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            exit 0
+          fi
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...${DEFAULT_BRANCH}" --jq .status)"
+          if [[ "$status" != identical && "$status" != ahead ]]; then
+            echo "Release tag must point to a commit on the default branch." >&2
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+      - name: Set up release test toolchain
+        if: steps.source.outputs.release == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18
+          rustup toolchain install 1.76.0 --profile minimal
+      - name: Test the release binaries in CKB-VM
+        if: steps.source.outputs.release == 'true'
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/spv-test-target
+          CLANG: clang-18
+          MODE: release
+        run: |
+          # The tests' Loader reads build/release; do not rebuild the contracts.
+          TOP="$GITHUB_WORKSPACE" cargo +1.76.0 test --locked -p tests
+          sha256sum --check --strict checksums.txt
+          git diff --exit-code checksums.txt
+      - name: Package production contract
+        run: |
+          python3 scripts/package-contract.py "$(git rev-parse HEAD)" \
+            "$(make --no-print-directory -s print-docker-build-image)" contract-binaries
+      - name: Upload contract binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: contract-binaries-${{ github.sha }}
+          path: contract-binaries/
+          if-no-files-found: error
+
+  publish:
+    if: >-
+      github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected &&
+      github.repository == 'RGBPlusPlus/ckb-bitcoin-spv-contracts' &&
+      needs.ubuntu-build.outputs.release == 'true'
+    needs: ubuntu-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified contract binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: contract-binaries-${{ github.sha }}
+          path: contract-binaries
+      - name: Publish GitHub Release
+        working-directory: contract-binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          jq -e --arg source "$GITHUB_SHA" '.source_commit == $source' manifest.json >/dev/null
+          sha256sum --check --strict SHA256SUMS
+          release_flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" "${release_flags[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --generate-notes ckb-bitcoin-spv-type-lock SHA256SUMS manifest.json
